@@ -31,8 +31,14 @@ function loadCSV() {
         .on('end', () => {
             const insertStmt = db.prepare(`INSERT INTO awards (title, year, producer, winner) VALUES (?, ?, ?, ?)`);
             data.forEach(row => {
-                const isWinner = row.winner === 'yes' ? 1 : 0;
-                insertStmt.run(row.title, parseInt(row.year), row.producers, isWinner);
+                const isWinner = row.winner && row.winner.trim().toLowerCase() === 'yes' ? 1 : 0;
+
+                // Dividir produtores por ',' ou 'and' e salvar como strings separadas
+                const producers = row.producers.split(/,|and/).map(p => p.trim());
+
+                producers.forEach(producer => {
+                    insertStmt.run(row.title, parseInt(row.year), producer, isWinner);
+                });
             });
             insertStmt.finalize();
             console.log('CSV data loaded into the database');
@@ -40,7 +46,7 @@ function loadCSV() {
 }
 loadCSV();
 
-// Endpoint para obter os produtores com maiores e menores intervalos entre prêmios
+// Endpoint para obter os intervalos gerais (mínimos e máximos)
 app.get('/awards/intervals', (req, res) => {
     db.all(`SELECT producer, year FROM awards WHERE winner = 1 ORDER BY producer, year`, (err, rows) => {
         if (err) {
@@ -69,15 +75,35 @@ app.get('/awards/intervals', (req, res) => {
             }
         }
 
-        const maxInterval = Math.max(...intervals.map(i => i.interval));
-        const minInterval = Math.min(...intervals.map(i => i.interval));
+        // Encontrar o intervalo geral mínimo e máximo
+        const overallMinInterval = Math.min(...intervals.map(i => i.interval));
+        const overallMaxInterval = Math.max(...intervals.map(i => i.interval));
 
         const result = {
-            min: intervals.filter(i => i.interval === minInterval),
-            max: intervals.filter(i => i.interval === maxInterval)
+            min: intervals.filter(i => i.interval === overallMinInterval),
+            max: intervals.filter(i => i.interval === overallMaxInterval)
         };
 
+        // Adicionar uma validação para o resultado
+        if (result.min.length === 0 || result.max.length === 0) {
+            res.status(404).json({ error: 'Nenhum intervalo encontrado' });
+            return;
+        }
+
         res.json(result);
+    });
+});
+
+// Endpoint para obter todos os filmes do banco de dados
+app.get('/awards/movies', (req, res) => {
+    db.all(`SELECT * FROM awards`, (err, rows) => {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+
+        // Retornar todos os registros no banco de dados
+        res.json(rows);
     });
 });
 
